@@ -5,6 +5,7 @@
 # =============================================================
 
 import os
+import re
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,8 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("3qverse")
 
-# Log startup state so you can see it in Render logs
-logger.info(f"Starting 3Qverse backend...")
+logger.info("Starting 3Qverse backend...")
 logger.info(f"GEMINI_API_KEY present: {bool(API_KEY)}")
 logger.info(f"GEMINI_API_KEY length: {len(API_KEY) if API_KEY else 0}")
 
@@ -48,7 +48,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── CODE RULE (injected into every prompt) ────────────────────
+# ── Shared prompt rules ───────────────────────────────────────
 CODE_RULE = """
 CRITICAL FORMATTING RULES:
 - Every code example MUST be inside a fenced code block.
@@ -61,7 +61,7 @@ CRITICAL FORMATTING RULES:
 """
 
 # =============================================================
-# Models
+# Request Models
 # =============================================================
 
 class ChatMessage(BaseModel):
@@ -88,12 +88,17 @@ class CodeAnalyzeRequest(BaseModel):
     code: str
     lang: str
 
+class ExamAnswerRequest(BaseModel):
+    question: str
+    subject: str
+    marks: str  # "5" or "10" — must be string
+
 # =============================================================
-# Helpers
+# Internal Helpers
 # =============================================================
 
 def call_gemini(prompt: str) -> str:
-    """Call Gemini and return text. Raises on failure."""
+    """Call Gemini 2.5 Flash and return text. Raises on failure."""
     if not client:
         raise Exception("Gemini client not initialized — GEMINI_API_KEY missing")
     response = client.models.generate_content(
@@ -104,6 +109,7 @@ def call_gemini(prompt: str) -> str:
         raise Exception("Gemini returned empty response")
     return response.text
 
+
 def build_history_context(history: List[ChatMessage]) -> str:
     """Format chat history for Gemini prompt context."""
     if not history:
@@ -113,6 +119,57 @@ def build_history_context(history: List[ChatMessage]) -> str:
         label = "Student" if msg.role == "user" else "3Q AI"
         lines.append(f"{label}: {msg.content}")
     return "\n".join(lines) + "\n\n"
+
+
+def extract_section(text: str, heading: str, next_headings: List[str]) -> str:
+    """
+    Robustly extract a section from markdown text between heading and
+    the next known heading. Returns empty string if not found.
+    Uses regex so it handles ## and bold variations safely.
+    """
+    # Build pattern: match heading line (## Heading or **Heading**)
+    escaped = re.escape(heading)
+    pattern = rf"(?:##\s*{escaped}|##\s*\d+\s*{escaped}|\*\*{escaped}\*\*)[^\n]*\n(.*?)(?=(?:##|\*\*(?:{'|'.join(re.escape(h) for h in next_headings)})\*\*)|\Z)"
+    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+def extract_keywords(text: str) -> List[str]:
+    """
+    Extract keywords from the Keywords section.
+    Handles - keyword, * keyword, or plain word per line.
+    """
+    section = extract_section(text, "Keywords", ["Diagram", "END"])
+    if not section:
+        return []
+    keywords = []
+    for line in section.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Remove leading - * • symbols
+        clean = re.sub(r"^[-*•]\s*", "", line).strip()
+        # Skip lines that look like headings or are too long
+        if clean and len(clean) < 60 and not clean.startswith("#"):
+            keywords.append(clean)
+    return keywords[:10]  # cap at 10 keywords
+
+
+def extract_diagram(text: str) -> str:
+    """
+    Extract diagram section. Returns empty string if
+    'not required' or 'N/A' or section is missing.
+    """
+    section = extract_section(text, "Diagram", ["END"])
+    if not section:
+        return ""
+    # If Gemini said diagram is not needed, return empty
+    lower = section.lower()
+    if any(phrase in lower for phrase in ["not required", "not applicable", "n/a", "no diagram"]):
+        return ""
+    return section.strip()
 
 # =============================================================
 # Routes
@@ -126,15 +183,15 @@ def home():
         "gemini_ready": bool(client),
     }
 
-# ── /debug — shows env state (remove after fixing) ────────────
+
 @app.get("/debug")
 def debug():
-    """Temporary debug endpoint — remove after confirming setup."""
     return {
         "gemini_api_key_set": bool(API_KEY),
         "gemini_client_ready": bool(client),
         "key_prefix": API_KEY[:8] + "..." if API_KEY else "NOT SET",
     }
+
 
 # ── /ask ──────────────────────────────────────────────────────
 @app.post("/ask")
@@ -170,6 +227,7 @@ Answer clearly for a B.Tech student using this format:
     except Exception as e:
         logger.error(f"[/ask] FAILED: {type(e).__name__}: {e}")
         return {"success": False, "error": f"AI error: {str(e)}"}
+
 
 # ── /concept ──────────────────────────────────────────────────
 @app.post("/concept")
@@ -213,6 +271,7 @@ Return STRICTLY in this format:
     except Exception as e:
         logger.error(f"[/concept] FAILED: {type(e).__name__}: {e}")
         return {"success": False, "error": f"AI error: {str(e)}"}
+
 
 # ── /study-plan ───────────────────────────────────────────────
 @app.post("/study-plan")
@@ -259,6 +318,7 @@ Rules: Exactly {data.days} lines, progress basics to advanced, match {data.level
         logger.error(f"[/study-plan] FAILED: {type(e).__name__}: {e}")
         return {"success": False, "error": f"AI error: {str(e)}"}
 
+
 # ── /roadmap ──────────────────────────────────────────────────
 @app.post("/roadmap")
 def generate_roadmap(data: RoadmapRequest):
@@ -281,13 +341,17 @@ No extra text. Practical and interview-focused."""
         steps = [
             line.strip()
             for line in raw.strip().split("\n")
-            if line.strip() and (line.strip()[0].isdigit() or line.strip().lower().startswith("step"))
+            if line.strip() and (
+                line.strip()[0].isdigit() or
+                line.strip().lower().startswith("step")
+            )
         ]
         return {"success": True, "data": steps}
 
     except Exception as e:
         logger.error(f"[/roadmap] FAILED: {type(e).__name__}: {e}")
         return {"success": False, "error": f"AI error: {str(e)}"}
+
 
 # ── /code-analyze ─────────────────────────────────────────────
 @app.post("/code-analyze")
@@ -335,4 +399,109 @@ Review format:
 
     except Exception as e:
         logger.error(f"[/code-analyze] FAILED: {type(e).__name__}: {e}")
+        return {"success": False, "error": f"AI error: {str(e)}"}
+
+
+# ── /exam-answer ──────────────────────────────────────────────
+@app.post("/exam-answer")
+def generate_exam_answer(data: ExamAnswerRequest):
+    # ── Input validation ──────────────────────────────────────
+    if not data.question.strip():
+        return {"success": False, "error": "Question cannot be empty"}
+    if not data.subject.strip():
+        return {"success": False, "error": "Subject cannot be empty"}
+    if data.marks not in ["5", "10"]:
+        return {"success": False, "error": "Marks must be '5' or '10'"}
+
+    logger.info(f"[/exam-answer] subject='{data.subject}' marks={data.marks} q='{data.question[:60]}'")
+
+    try:
+        prompt = f"""You are an expert B.Tech university professor who writes PERFECT EXAM ANSWERS.
+Your answers are structured, complete, and optimized to score full marks.
+
+Subject: {data.subject}
+Marks: {data.marks}
+Question: {data.question}
+
+Write structured exam answers in EXACTLY this format.
+Use the exact headings below — do not change them:
+
+## 5 Mark Answer
+Write a concise answer worth 5 marks.
+Structure:
+- Definition (1-2 crisp lines)
+- Key Points (4-5 bullet points, each one scoreable)
+- Short example or use case (if applicable)
+Keep it focused. Every line must earn marks.
+
+## 10 Mark Answer
+Write a detailed answer worth 10 marks.
+Structure:
+- Introduction / Definition (2-3 lines)
+- Detailed Explanation (paragraphs or structured points)
+- Key Points (6-8 bullet points with brief explanations)
+- Example (real-world or technical, explained clearly)
+- Conclusion (1-2 lines summarizing importance)
+This answer should be comprehensive but not repetitive.
+
+## Keywords
+List the 6-8 most important keywords/terms from this answer.
+These are the words examiners look for when marking.
+Format each on its own line starting with -
+
+## Diagram
+If a diagram, flowchart, or table would help answer this question,
+describe it clearly in text form (ASCII or structured text).
+If no diagram is useful, write exactly: Not required
+
+STRICT RULES:
+- Use EXACTLY the headings above (## 5 Mark Answer, ## 10 Mark Answer, ## Keywords, ## Diagram)
+- Do not add extra sections or headings
+- Do not add preamble or commentary outside the sections
+- Write exam-ready content — precise, structured, mark-scoring
+- Avoid storytelling or unnecessary padding
+- Use {CODE_RULE} if any code example is needed
+"""
+
+        raw = call_gemini(prompt)
+        logger.info(f"[/exam-answer] Gemini response received, len={len(raw)}")
+
+        # ── Robust section extraction ─────────────────────────
+        five_mark = extract_section(raw, "5 Mark Answer",  ["10 Mark Answer", "Keywords", "Diagram"])
+        ten_mark  = extract_section(raw, "10 Mark Answer", ["Keywords", "Diagram"])
+        keywords  = extract_keywords(raw)
+        diagram   = extract_diagram(raw)
+
+        # ── Fallback: if regex extraction fails, return raw ───
+        # This ensures the frontend always gets something useful
+        if not five_mark and not ten_mark:
+            logger.warning("[/exam-answer] Section extraction failed — returning raw response")
+            return {
+                "success": True,
+                "data": {
+                    "five_mark":  raw,   # frontend MarkdownRenderer will handle it
+                    "ten_mark":   "",
+                    "keywords":   [],
+                    "diagram":    "",
+                }
+            }
+
+        logger.info(
+            f"[/exam-answer] Parsed: 5mark={len(five_mark)}chars "
+            f"10mark={len(ten_mark)}chars keywords={len(keywords)} "
+            f"diagram={'yes' if diagram else 'no'}"
+        )
+
+        return {
+            "success": True,
+            "data": {
+                "five_mark":  five_mark,
+                "ten_mark":   ten_mark,
+                "keywords":   keywords,
+                "diagram":    diagram,
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"[/exam-answer] FAILED: {type(e).__name__}: {e}")
         return {"success": False, "error": f"AI error: {str(e)}"}
