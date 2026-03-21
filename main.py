@@ -1,16 +1,17 @@
 # =============================================================
 # 3Qverse AI Backend — main.py
-# Run locally:  uvicorn main:app --reload
-# Deploy:       Push to Render, set GEMINI_API_KEY env var
+# INTELLIGENCE LAYER v2.0
+# "The system that thinks before it speaks"
 # =============================================================
 
 import os
 import re
+import time
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from google import genai
 from dotenv import load_dotenv
 
@@ -25,20 +26,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger("3qverse")
 
-logger.info("Starting 3Qverse backend...")
+logger.info("Starting 3Qverse AI backend v2.0 — Intelligence Layer active")
 logger.info(f"GEMINI_API_KEY present: {bool(API_KEY)}")
 logger.info(f"GEMINI_API_KEY length: {len(API_KEY) if API_KEY else 0}")
 
 # ── Gemini Client ─────────────────────────────────────────────
 if not API_KEY:
-    logger.error("❌ GEMINI_API_KEY not set! Set it in Render Environment Variables.")
+    logger.error("❌ GEMINI_API_KEY not set!")
     client = None
 else:
     client = genai.Client(api_key=API_KEY)
     logger.info("✅ Gemini client initialized")
 
 # ── App ───────────────────────────────────────────────────────
-app = FastAPI(title="3Qverse AI Backend")
+app = FastAPI(
+    title="3Qverse AI Backend",
+    description="Intelligent B.Tech learning assistant — v2.0",
+    version="2.0.0",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,7 +53,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Shared prompt rules ───────────────────────────────────────
+# ── Request timing middleware ─────────────────────────────────
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration = round((time.time() - start) * 1000, 2)
+    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({duration}ms)")
+    return response
+
+# ── Shared code formatting rule ───────────────────────────────
 CODE_RULE = """
 CRITICAL FORMATTING RULES:
 - Every code example MUST be inside a fenced code block.
@@ -91,14 +105,423 @@ class CodeAnalyzeRequest(BaseModel):
 class ExamAnswerRequest(BaseModel):
     question: str
     subject: str
-    marks: str  # "5" or "10" — must be string
+    marks: str  # "5" or "10" — string
 
 # =============================================================
-# Internal Helpers
+# ╔══════════════════════════════════════════════════════════╗
+# ║          INTELLIGENCE LAYER — THE BRAIN                  ║
+# ║  This is what separates 3Qverse from a plain AI wrapper  ║
+# ╚══════════════════════════════════════════════════════════╝
+# =============================================================
+
+# ── LAYER 1: Question Type Detector ──────────────────────────
+# Understands WHAT the student is asking before answering
+def detect_question_type(question: str) -> str:
+    """
+    Classify the exam question into one of 8 types.
+    This drives prompt adaptation — different types get different strategies.
+    """
+    q = question.lower().strip()
+
+    # ORDER MATTERS — more specific patterns first
+    if any(w in q for w in ["compare", "difference between", "distinguish", "differentiate", "vs ", "versus"]):
+        return "comparison"
+    elif any(w in q for w in ["draw", "sketch", "diagram", "illustrate", "show with figure"]):
+        return "diagram"
+    elif any(w in q for w in ["advantages and disadvantages", "pros and cons", "merits and demerits", "advantages", "disadvantages"]):
+        return "pros_cons"
+    elif any(w in q for w in ["how does", "how do", "how is", "how are", "working of", "mechanism", "process of"]):
+        return "working"
+    elif any(w in q for w in ["algorithm", "write algorithm", "steps to", "procedure"]):
+        return "algorithm"
+    elif any(w in q for w in ["write a program", "write code", "implement", "coding"]):
+        return "code"
+    elif any(w in q for w in ["define", "what is", "what are", "state", "give the definition"]):
+        return "definition"
+    elif any(w in q for w in ["explain", "describe", "elaborate", "discuss", "write short note", "write a note"]):
+        return "explanation"
+    else:
+        return "general"
+
+
+# ── LAYER 2: Subject Intelligence ────────────────────────────
+# Knows the exam landscape of each B.Tech subject
+SUBJECT_INTELLIGENCE: Dict[str, Dict] = {
+    # Operating Systems
+    "os": {
+        "full_name": "Operating Systems",
+        "hot_topics": ["deadlock", "scheduling", "memory management", "paging", "semaphore", "process", "thread", "ipc"],
+        "exam_weight": "very_high",
+        "tip": "Always mention real OS examples (Linux, Windows). Diagrams for process states and memory are expected."
+    },
+    "operating systems": {
+        "full_name": "Operating Systems",
+        "hot_topics": ["deadlock", "scheduling", "memory management", "paging", "semaphore", "process", "thread"],
+        "exam_weight": "very_high",
+        "tip": "Always mention real OS examples. State transition diagrams score extra marks."
+    },
+    # DBMS
+    "dbms": {
+        "full_name": "Database Management Systems",
+        "hot_topics": ["normalization", "er diagram", "sql", "transaction", "acid", "joins", "indexing", "b-tree"],
+        "exam_weight": "very_high",
+        "tip": "Always write SQL queries when asked. Normalization needs step-by-step with examples."
+    },
+    "database": {
+        "full_name": "Database Management Systems",
+        "hot_topics": ["normalization", "er diagram", "sql", "transaction", "acid", "joins"],
+        "exam_weight": "very_high",
+        "tip": "SQL queries and ER diagrams are expected. Always show functional dependencies."
+    },
+    # Computer Networks
+    "computer networks": {
+        "full_name": "Computer Networks",
+        "hot_topics": ["tcp/ip", "osi model", "routing", "subnetting", "congestion", "http", "dns", "topology"],
+        "exam_weight": "high",
+        "tip": "OSI/TCP-IP layer diagrams are expected. Always mention protocol names and port numbers."
+    },
+    "cn": {
+        "full_name": "Computer Networks",
+        "hot_topics": ["tcp", "osi", "routing", "subnetting", "congestion", "topology"],
+        "exam_weight": "high",
+        "tip": "Layer diagrams always score marks. Mention specific protocols."
+    },
+    "computer networking": {
+        "full_name": "Computer Networks",
+        "hot_topics": ["tcp", "osi", "routing", "topology", "congestion", "dns"],
+        "exam_weight": "high",
+        "tip": "Topology diagrams and layer models are expected in answers."
+    },
+    # Data Structures
+    "data structures": {
+        "full_name": "Data Structures & Algorithms",
+        "hot_topics": ["trees", "graphs", "sorting", "searching", "hashing", "stack", "queue", "linked list"],
+        "exam_weight": "very_high",
+        "tip": "Always write code + trace through example. Time complexity is mandatory for algorithms."
+    },
+    "dsa": {
+        "full_name": "Data Structures & Algorithms",
+        "hot_topics": ["trees", "sorting", "hashing", "graphs", "complexity"],
+        "exam_weight": "very_high",
+        "tip": "Code + dry run + time complexity = full marks formula."
+    },
+    # Software Engineering
+    "software engineering": {
+        "full_name": "Software Engineering",
+        "hot_topics": ["sdlc", "agile", "waterfall", "testing", "uml", "design patterns", "requirements"],
+        "exam_weight": "medium",
+        "tip": "Diagrams (UML, flowcharts) and model comparisons score highly."
+    },
+    # Computer Architecture
+    "computer organization": {
+        "full_name": "Computer Organization & Architecture",
+        "hot_topics": ["pipeline", "cache", "instruction cycle", "addressing modes", "alu", "registers"],
+        "exam_weight": "high",
+        "tip": "Timing diagrams and block diagrams are expected. Show numerical examples."
+    },
+    "coa": {
+        "full_name": "Computer Organization & Architecture",
+        "hot_topics": ["pipeline", "cache", "instruction cycle", "alu"],
+        "exam_weight": "high",
+        "tip": "Block diagrams with labels score extra marks."
+    },
+}
+
+def get_subject_intel(subject: str) -> Optional[Dict]:
+    """Get subject intelligence data. Fuzzy match by checking substrings."""
+    s = subject.lower().strip()
+    # Exact match first
+    if s in SUBJECT_INTELLIGENCE:
+        return SUBJECT_INTELLIGENCE[s]
+    # Partial match
+    for key, val in SUBJECT_INTELLIGENCE.items():
+        if key in s or s in key:
+            return val
+    return None
+
+
+# ── LAYER 3: Topic Importance Scorer ─────────────────────────
+# Detects if this is a high-frequency exam question that needs extra depth
+UNIVERSALLY_IMPORTANT = [
+    # OS
+    "deadlock", "semaphore", "mutex", "scheduling", "paging", "segmentation",
+    "virtual memory", "thrashing", "critical section", "process synchronization",
+    # DBMS
+    "normalization", "er diagram", "acid properties", "transaction", "join",
+    "b+ tree", "indexing", "concurrency control",
+    # Networks
+    "tcp/ip", "osi model", "subnetting", "congestion control", "routing algorithm",
+    "ip addressing", "dns", "http", "three way handshake",
+    # DSA
+    "binary search tree", "avl tree", "dijkstra", "dynamic programming",
+    "sorting algorithm", "time complexity", "hash table",
+    # General CS
+    "recursion", "polymorphism", "inheritance", "design pattern",
+]
+
+def score_question_importance(question: str, subject_intel: Optional[Dict]) -> str:
+    """
+    Returns 'critical' | 'high' | 'normal'
+    Critical = frequently asked, must score full marks
+    """
+    q = question.lower()
+
+    # Check universal importance
+    if any(topic in q for topic in UNIVERSALLY_IMPORTANT):
+        return "critical"
+
+    # Check subject-specific hot topics
+    if subject_intel:
+        hot = subject_intel.get("hot_topics", [])
+        if any(topic in q for topic in hot):
+            return "high"
+
+    return "normal"
+
+
+# ── LAYER 4: Prompt Strategy Builder ─────────────────────────
+# Builds the right prompt strategy based on everything we know
+def build_exam_prompt_strategy(
+    question: str,
+    subject: str,
+    marks: str,
+    q_type: str,
+    importance: str,
+    subject_intel: Optional[Dict]
+) -> str:
+    """
+    Assembles a context-aware, adaptive prompt.
+    Every input shapes the output differently.
+    """
+    # Base character of the AI for this subject
+    subject_context = ""
+    if subject_intel:
+        subject_context = f"""
+You are an expert professor of {subject_intel['full_name']}.
+Examiner's tip for this subject: {subject_intel['tip']}
+"""
+    else:
+        subject_context = f"You are an expert professor of {subject}."
+
+    # Importance booster
+    importance_instruction = ""
+    if importance == "critical":
+        importance_instruction = """
+⚠️  CRITICAL EXAM TOPIC DETECTED:
+This question is extremely frequently asked in university exams.
+- Emphasize all keywords — examiners look for these specifically
+- Every bullet point must be a mark-earning statement
+- Do NOT miss any standard sub-topic for this concept
+- Include the standard definition that examiners expect
+"""
+    elif importance == "high":
+        importance_instruction = """
+📌  HIGH-VALUE QUESTION:
+- This is a commonly tested topic — be thorough
+- Include all standard components examiners expect
+- Keywords and technical terms must be precise
+"""
+
+    # Question-type specific strategy
+    type_instruction = ""
+    if q_type == "comparison":
+        type_instruction = """
+📊  COMPARISON QUESTION STRATEGY:
+- Present differences in a clear TABLE format:
+  | Parameter | [Term A] | [Term B] |
+  |-----------|----------|----------|
+- Cover at least 6-8 comparison parameters
+- Parameters: Definition, Purpose, Speed, Memory, Use case, Example
+- Examiners give marks per row — more rows = more marks
+"""
+    elif q_type == "diagram":
+        type_instruction = """
+🖼️  DIAGRAM QUESTION STRATEGY:
+- Diagram section is MANDATORY and worth 3-4 marks alone
+- Draw using ASCII art, clearly labeled
+- Every component must be labeled
+- Show direction of flow with arrows (→, ↓, ←)
+- Add a brief description of each labeled component
+"""
+    elif q_type == "pros_cons":
+        type_instruction = """
+⚖️  ADVANTAGES/DISADVANTAGES STRATEGY:
+- Use clear two-column or two-section format
+- ADVANTAGES: numbered list, each point one mark
+- DISADVANTAGES: numbered list, each point one mark
+- Be specific — avoid vague points like "it is good"
+- Give technical reasons for each advantage/disadvantage
+"""
+    elif q_type == "algorithm":
+        type_instruction = """
+⚙️  ALGORITHM QUESTION STRATEGY:
+- Write algorithm in numbered steps (standard format)
+- After algorithm, show a dry run/trace with example input
+- State time complexity: O(?) and space complexity: O(?)
+- Include code implementation in a fenced code block
+"""
+    elif q_type == "code":
+        type_instruction = f"""
+💻  CODE QUESTION STRATEGY:
+- Write clean, working code in the most appropriate language
+- Add comments explaining each significant line
+- Show sample input and expected output
+- Mention time and space complexity
+- {CODE_RULE}
+"""
+    elif q_type == "working":
+        type_instruction = """
+⚙️  HOW IT WORKS — STRATEGY:
+- Explain step-by-step, not just what it is
+- Use numbered steps for the process/mechanism
+- Include a diagram showing the working
+- Give a real-world analogy to make it memorable
+- Mention edge cases or failure scenarios
+"""
+    elif q_type == "definition":
+        type_instruction = """
+📖  DEFINITION QUESTION STRATEGY:
+- Start with the standard textbook definition (examiners check this)
+- Follow with expanded explanation
+- Give one concrete real-world example
+- List key characteristics as bullet points
+"""
+
+    # Marks-based length guidance
+    if marks == "5":
+        length_guide = """
+📏  5-MARK ANSWER FORMAT:
+- Length: approximately 150-200 words
+- Definition: 1-2 crisp lines
+- Key Points: EXACTLY 4-5 bullet points (each = ~1 mark)
+- Example: 2-3 lines maximum
+- Every sentence must earn marks — no filler
+"""
+    else:
+        length_guide = """
+📏  10-MARK ANSWER FORMAT:
+- Length: approximately 400-500 words
+- Introduction/Definition: 2-3 lines
+- Detailed Explanation: 3-4 paragraphs OR structured sections
+- Key Points: 6-8 detailed bullet points (each = ~1 mark)
+- Example: Fully explained with specifics
+- Diagram: Labeled ASCII diagram (if applicable)
+- Conclusion: 1-2 lines about real-world significance
+- Every section must be clearly headed for easy marking
+"""
+
+    # Assemble the full prompt
+    prompt = f"""{subject_context}
+
+Subject: {subject}
+Question: {question}
+Marks: {marks}
+Question Type Detected: {q_type}
+
+{importance_instruction}
+{type_instruction}
+{length_guide}
+
+Write the exam answer in EXACTLY this format:
+
+## 5 Mark Answer
+[Write the 5-mark answer here — even for 10-mark questions, include a concise version]
+
+## 10 Mark Answer
+[Write the detailed 10-mark answer here]
+
+## Keywords
+[List 6-8 key terms, one per line starting with -]
+
+## Diagram
+[ASCII diagram if helpful, or write: Not required]
+
+ABSOLUTE RULES:
+- Use EXACTLY these headings: ## 5 Mark Answer, ## 10 Mark Answer, ## Keywords, ## Diagram
+- No preamble. No commentary outside sections. No meta-text.
+- Answers must be exam-ready — a student should be able to copy and score marks
+- Technical terms must be precise and correctly used
+{CODE_RULE}
+"""
+    return prompt
+
+
+# ── LAYER 5: Output Intelligence Cleaner ─────────────────────
+def clean_output(text: str) -> str:
+    """
+    Post-processing: clean Gemini's output before parsing.
+    Fixes common formatting artifacts that break extraction.
+    """
+    # Fix double spaces after **
+    text = re.sub(r'\*\*\s+', '**', text)
+    # Fix missing space before **
+    text = re.sub(r'([a-z])\*\*', r'\1 **', text)
+    # Normalize multiple blank lines to double
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # Remove trailing whitespace on lines
+    text = '\n'.join(line.rstrip() for line in text.split('\n'))
+    # Ensure ## headings have space after ##
+    text = re.sub(r'##([^ ])', r'## \1', text)
+    return text.strip()
+
+
+# ── LAYER 6: Smart Metadata Builder ──────────────────────────
+def build_answer_metadata(
+    question: str,
+    subject: str,
+    q_type: str,
+    importance: str,
+    subject_intel: Optional[Dict],
+    response_time_ms: float
+) -> Dict:
+    """
+    Build metadata returned with every exam answer.
+    This powers frontend features like "why this matters" and tips.
+    """
+    metadata = {
+        "question_type": q_type,
+        "importance_level": importance,
+        "response_time_ms": round(response_time_ms, 2),
+    }
+
+    if subject_intel:
+        metadata["subject_tip"] = subject_intel.get("tip", "")
+        metadata["exam_weight"] = subject_intel.get("exam_weight", "normal")
+
+        # Check if question matches hot topics
+        hot = subject_intel.get("hot_topics", [])
+        q_lower = question.lower()
+        matched_topics = [t for t in hot if t in q_lower]
+        if matched_topics:
+            metadata["matched_hot_topics"] = matched_topics
+
+    # Add study tip based on question type
+    type_tips = {
+        "comparison": "Tables get more marks than paragraph comparisons in this topic.",
+        "diagram": "A labeled diagram alone can earn 3-4 marks — always draw it.",
+        "algorithm": "Writing the dry run trace alongside the algorithm doubles your marks.",
+        "code": "Comments in code + time complexity = examiner's favorite answer.",
+        "pros_cons": "Equal number of advantages and disadvantages shows balanced understanding.",
+        "definition": "Start with the exact textbook definition — examiners check first lines.",
+        "working": "Step-by-step numbered explanation shows process understanding.",
+    }
+    if q_type in type_tips:
+        metadata["exam_tip"] = type_tips[q_type]
+
+    if importance == "critical":
+        metadata["importance_note"] = "🔥 This is a very frequently asked exam topic — learn this thoroughly."
+    elif importance == "high":
+        metadata["importance_note"] = "📌 Commonly tested — make sure you understand all aspects."
+
+    return metadata
+
+
+# =============================================================
+# Helpers (parsing, history, Gemini)
 # =============================================================
 
 def call_gemini(prompt: str) -> str:
-    """Call Gemini 2.5 Flash and return text. Raises on failure."""
+    """Call Gemini 2.5 Flash. Raises on failure."""
     if not client:
         raise Exception("Gemini client not initialized — GEMINI_API_KEY missing")
     response = client.models.generate_content(
@@ -122,25 +545,16 @@ def build_history_context(history: List[ChatMessage]) -> str:
 
 
 def extract_section(text: str, heading: str, next_headings: List[str]) -> str:
-    """
-    Robustly extract a section from markdown text between heading and
-    the next known heading. Returns empty string if not found.
-    Uses regex so it handles ## and bold variations safely.
-    """
-    # Build pattern: match heading line (## Heading or **Heading**)
+    """Robustly extract a section from markdown text using regex."""
     escaped = re.escape(heading)
-    pattern = rf"(?:##\s*{escaped}|##\s*\d+\s*{escaped}|\*\*{escaped}\*\*)[^\n]*\n(.*?)(?=(?:##|\*\*(?:{'|'.join(re.escape(h) for h in next_headings)})\*\*)|\Z)"
+    next_pattern = '|'.join(re.escape(h) for h in next_headings)
+    pattern = rf"(?:##\s*{escaped}|##\s*\d+\s*{escaped}|\*\*{escaped}\*\*)[^\n]*\n(.*?)(?=(?:##\s*(?:{next_pattern})|\*\*(?:{next_pattern})\*\*)|\Z)"
     match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return ""
+    return match.group(1).strip() if match else ""
 
 
 def extract_keywords(text: str) -> List[str]:
-    """
-    Extract keywords from the Keywords section.
-    Handles - keyword, * keyword, or plain word per line.
-    """
+    """Extract keywords list from Keywords section."""
     section = extract_section(text, "Keywords", ["Diagram", "END"])
     if not section:
         return []
@@ -149,27 +563,22 @@ def extract_keywords(text: str) -> List[str]:
         line = line.strip()
         if not line:
             continue
-        # Remove leading - * • symbols
-        clean = re.sub(r"^[-*•]\s*", "", line).strip()
-        # Skip lines that look like headings or are too long
+        clean = re.sub(r"^[-*•\d.]\s*", "", line).strip()
         if clean and len(clean) < 60 and not clean.startswith("#"):
             keywords.append(clean)
-    return keywords[:10]  # cap at 10 keywords
+    return keywords[:10]
 
 
 def extract_diagram(text: str) -> str:
-    """
-    Extract diagram section. Returns empty string if
-    'not required' or 'N/A' or section is missing.
-    """
+    """Extract diagram section, return empty if not required."""
     section = extract_section(text, "Diagram", ["END"])
     if not section:
         return ""
-    # If Gemini said diagram is not needed, return empty
     lower = section.lower()
-    if any(phrase in lower for phrase in ["not required", "not applicable", "n/a", "no diagram"]):
+    if any(p in lower for p in ["not required", "not applicable", "n/a", "no diagram", "not needed"]):
         return ""
     return section.strip()
+
 
 # =============================================================
 # Routes
@@ -180,6 +589,8 @@ def home():
     return {
         "success": True,
         "data": "3Qverse AI backend is running",
+        "version": "2.0.0",
+        "intelligence_layers": 6,
         "gemini_ready": bool(client),
     }
 
@@ -190,6 +601,7 @@ def debug():
         "gemini_api_key_set": bool(API_KEY),
         "gemini_client_ready": bool(client),
         "key_prefix": API_KEY[:8] + "..." if API_KEY else "NOT SET",
+        "version": "2.0.0",
     }
 
 
@@ -203,7 +615,6 @@ def ask_ai(data: AskRequest):
 
     try:
         history_context = build_history_context(data.history or [])
-
         prompt = f"""You are 3Q AI, a smart B.Tech learning assistant.
 Always use the previous conversation context to understand follow-up questions.
 If a student asks "give me code" or "example" without specifying a topic,
@@ -403,9 +814,11 @@ Review format:
 
 
 # ── /exam-answer ──────────────────────────────────────────────
+# The crown jewel — full intelligence pipeline
 @app.post("/exam-answer")
 def generate_exam_answer(data: ExamAnswerRequest):
-    # ── Input validation ──────────────────────────────────────
+
+    # ── Validation ────────────────────────────────────────────
     if not data.question.strip():
         return {"success": False, "error": "Question cannot be empty"}
     if not data.subject.strip():
@@ -413,83 +826,74 @@ def generate_exam_answer(data: ExamAnswerRequest):
     if data.marks not in ["5", "10"]:
         return {"success": False, "error": "Marks must be '5' or '10'"}
 
-    logger.info(f"[/exam-answer] subject='{data.subject}' marks={data.marks} q='{data.question[:60]}'")
+    start_time = time.time()
+
+    # ══════════════════════════════════════════════════════════
+    # INTELLIGENCE PIPELINE — runs before touching Gemini
+    # ══════════════════════════════════════════════════════════
+
+    # Layer 1: Detect what TYPE of question this is
+    q_type = detect_question_type(data.question)
+
+    # Layer 2: Load subject intelligence
+    subject_intel = get_subject_intel(data.subject)
+
+    # Layer 3: Score importance (critical/high/normal)
+    importance = score_question_importance(data.question, subject_intel)
+
+    logger.info(
+        f"[/exam-answer] subject='{data.subject}' marks={data.marks} "
+        f"type={q_type} importance={importance} "
+        f"subject_known={bool(subject_intel)} "
+        f"q='{data.question[:60]}'"
+    )
 
     try:
-        prompt = f"""You are an expert B.Tech university professor who writes PERFECT EXAM ANSWERS.
-Your answers are structured, complete, and optimized to score full marks.
+        # Layer 4: Build the adaptive prompt
+        prompt = build_exam_prompt_strategy(
+            question=data.question,
+            subject=data.subject,
+            marks=data.marks,
+            q_type=q_type,
+            importance=importance,
+            subject_intel=subject_intel
+        )
 
-Subject: {data.subject}
-Marks: {data.marks}
-Question: {data.question}
-
-Write structured exam answers in EXACTLY this format.
-Use the exact headings below — do not change them:
-
-## 5 Mark Answer
-Write a concise answer worth 5 marks.
-Structure:
-- Definition (1-2 crisp lines)
-- Key Points (4-5 bullet points, each one scoreable)
-- Short example or use case (if applicable)
-Keep it focused. Every line must earn marks.
-
-## 10 Mark Answer
-Write a detailed answer worth 10 marks.
-Structure:
-- Introduction / Definition (2-3 lines)
-- Detailed Explanation (paragraphs or structured points)
-- Key Points (6-8 bullet points with brief explanations)
-- Example (real-world or technical, explained clearly)
-- Conclusion (1-2 lines summarizing importance)
-This answer should be comprehensive but not repetitive.
-
-## Keywords
-List the 6-8 most important keywords/terms from this answer.
-These are the words examiners look for when marking.
-Format each on its own line starting with -
-
-## Diagram
-If a diagram, flowchart, or table would help answer this question,
-describe it clearly in text form (ASCII or structured text).
-If no diagram is useful, write exactly: Not required
-
-STRICT RULES:
-- Use EXACTLY the headings above (## 5 Mark Answer, ## 10 Mark Answer, ## Keywords, ## Diagram)
-- Do not add extra sections or headings
-- Do not add preamble or commentary outside the sections
-- Write exam-ready content — precise, structured, mark-scoring
-- Avoid storytelling or unnecessary padding
-- Use {CODE_RULE} if any code example is needed
-"""
-
+        # Call Gemini with our intelligent prompt
         raw = call_gemini(prompt)
-        logger.info(f"[/exam-answer] Gemini response received, len={len(raw)}")
 
-        # ── Robust section extraction ─────────────────────────
+        # Layer 5: Clean the output
+        raw = clean_output(raw)
+
+        logger.info(f"[/exam-answer] Gemini response: {len(raw)} chars")
+
+        # Layer 6: Parse sections
         five_mark = extract_section(raw, "5 Mark Answer",  ["10 Mark Answer", "Keywords", "Diagram"])
         ten_mark  = extract_section(raw, "10 Mark Answer", ["Keywords", "Diagram"])
         keywords  = extract_keywords(raw)
         diagram   = extract_diagram(raw)
 
-        # ── Fallback: if regex extraction fails, return raw ───
-        # This ensures the frontend always gets something useful
+        # Fallback: if parsing fails, return raw (frontend handles it)
         if not five_mark and not ten_mark:
-            logger.warning("[/exam-answer] Section extraction failed — returning raw response")
-            return {
-                "success": True,
-                "data": {
-                    "five_mark":  raw,   # frontend MarkdownRenderer will handle it
-                    "ten_mark":   "",
-                    "keywords":   [],
-                    "diagram":    "",
-                }
-            }
+            logger.warning("[/exam-answer] Extraction failed — returning raw")
+            five_mark = raw
+            ten_mark  = ""
+
+        # Build metadata for frontend
+        response_time_ms = (time.time() - start_time) * 1000
+        metadata = build_answer_metadata(
+            question=data.question,
+            subject=data.subject,
+            q_type=q_type,
+            importance=importance,
+            subject_intel=subject_intel,
+            response_time_ms=response_time_ms
+        )
 
         logger.info(
-            f"[/exam-answer] Parsed: 5mark={len(five_mark)}chars "
-            f"10mark={len(ten_mark)}chars keywords={len(keywords)} "
-            f"diagram={'yes' if diagram else 'no'}"
+            f"[/exam-answer] ✅ Done in {round(response_time_ms)}ms — "
+            f"5mark={len(five_mark)}c 10mark={len(ten_mark)}c "
+            f"keywords={len(keywords)} diagram={'yes' if diagram else 'no'}"
         )
 
         return {
@@ -499,6 +903,7 @@ STRICT RULES:
                 "ten_mark":   ten_mark,
                 "keywords":   keywords,
                 "diagram":    diagram,
+                "metadata":   metadata,  # bonus: frontend can show tips, importance, etc.
             }
         }
 
