@@ -615,7 +615,7 @@ def ask_ai(data: AskRequest):
 
     try:
         history_context = build_history_context(data.history or [])
-       prompt = f"""You are 3Q AI, a smart B.Tech learning assistant.
+        prompt = f"""You are 3Q AI, a smart B.Tech learning assistant.
 Always use the previous conversation context to understand follow-up questions.
 If a student asks "give me code" or "example" without specifying a topic,
 look at the previous conversation to know what topic they mean.
@@ -623,37 +623,11 @@ look at the previous conversation to know what topic they mean.
 {history_context}Student's new question: {data.question}
 
 Answer clearly for a B.Tech student using this format:
-
-1. **Simple Explanation**
-Write 2-3 complete sentences. Do NOT use inline code here. Plain text only.
-
+1. **Simple Explanation** (2-3 lines)
 2. **Real-world Analogy**
-One clear analogy in 2-3 sentences. Plain text only. No code here.
-
-3. **Technical Breakdown**
-- Each bullet point is ONE complete sentence
-- Do NOT split a sentence across multiple lines
-- Do NOT mix inline code with long explanations
-- Keep each bullet focused on ONE idea only
-- Maximum 6 bullet points
-
-4. **Example**
-First write 1-2 sentences explaining what the code does.
-Then show the code in a fenced block:
-```language
-# complete working example here
-```
-
-5. **Interview Questions**
-1. (question one — full sentence)
-2. (question two — full sentence)
-
-FORMATTING RULES:
-- Keep inline code SHORT — max 3-4 words like `null` or `if (x != null)`
-- Never put a long explanation inside backticks
-- Each section must be clearly separated by a blank line
-- Never break a sentence in the middle to insert a code snippet
-- If you need to mention code, finish the sentence first, then show code on next line
+3. **Technical Breakdown** (bullet points)
+4. **Example** (code if applicable)
+5. **Interview Questions** (2 questions)
 
 {CODE_RULE}"""
 
