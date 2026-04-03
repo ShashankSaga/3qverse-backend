@@ -107,6 +107,11 @@ class ExamAnswerRequest(BaseModel):
     subject: str
     marks: str  # "5" or "10" — string
 
+class LastNightRequest(BaseModel):
+    subject: str
+    time: str    # e.g. "1 hour", "2 hours"
+    topics: Optional[str] = ""
+
 # =============================================================
 # ╔══════════════════════════════════════════════════════════╗
 # ║          INTELLIGENCE LAYER — THE BRAIN                  ║
@@ -909,4 +914,73 @@ def generate_exam_answer(data: ExamAnswerRequest):
 
     except Exception as e:
         logger.error(f"[/exam-answer] FAILED: {type(e).__name__}: {e}")
+        return {"success": False, "error": f"AI error: {str(e)}"}
+
+
+# ── /last-night ───────────────────────────────────────────────
+@app.post("/last-night")
+def last_night_plan(data: LastNightRequest):
+    if not data.subject.strip():
+        return {"success": False, "error": "Subject cannot be empty"}
+    if not data.time.strip():
+        return {"success": False, "error": "Time cannot be empty"}
+
+    logger.info(f"[/last-night] subject='{data.subject}' time='{data.time}' topics='{data.topics}'")
+
+    try:
+        prompt = f"""You are an expert B.Tech exam strategist.
+
+A student has ONLY {data.time} to prepare for {data.subject}.
+Optional focus topics: {data.topics if data.topics else 'Not specified — cover the most important ones'}
+
+Your job is NOT to explain everything.
+Your job is to MAXIMIZE marks in minimum time.
+
+Return STRICTLY in this format with these EXACT section headings:
+
+## HIGH PRIORITY TOPICS
+List the 5-7 most expected topics in the exam as bullet points.
+Each topic: one line, bold the topic name, add why it's important.
+
+## TIME ALLOCATION PLAN
+Break {data.time} into chunks. Example:
+- First 20 min: Topic A (definition + key points)
+- Next 20 min: Topic B (formula + example)
+Be specific to {data.subject}.
+
+## WHAT TO SKIP
+List 3-5 topics that are low ROI for exam marks.
+Format: - Topic name → reason to skip
+
+## WHAT TO WRITE IN EXAM
+Give exact answer structure for {data.subject} questions:
+- How to start the answer
+- What sections to include
+- How many points to write for 5-mark vs 10-mark
+
+## MEMORY HACKS
+Give 3-5 mnemonics, tricks, or short formulas that help remember key concepts.
+Format: - HACK: "mnemonic or trick" → what it helps remember
+
+## LAST 10 MINUTES REVISION
+Exactly what to scan/read in the final 10 minutes before the exam.
+Be very specific — which exact topics, formulas, or diagrams.
+
+STRICT RULES:
+- Every section must have content — never leave blank
+- Use bullet points throughout — no long paragraphs
+- Be extremely practical and exam-focused
+- Assume student is average level
+- Focus only on scoring marks, not deep understanding
+- Adapt everything specifically to {data.subject}
+"""
+
+        raw = call_gemini(prompt)
+        raw = clean_output(raw)
+
+        logger.info(f"[/last-night] success, response_len={len(raw)}")
+        return {"success": True, "data": raw}
+
+    except Exception as e:
+        logger.error(f"[/last-night] FAILED: {type(e).__name__}: {e}")
         return {"success": False, "error": f"AI error: {str(e)}"}
