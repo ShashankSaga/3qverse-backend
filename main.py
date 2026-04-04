@@ -931,62 +931,48 @@ def last_night_plan(data: LastNightRequest):
         prompt = f"""
 You are a ruthless exam strategist.
 
-A student has ONLY {data.time} to prepare for {data.subject}.
+Return ONLY valid JSON.
 
+Student has {data.time} to prepare for {data.subject}.
 Focus topics: {data.topics if data.topics else 'None'}
 
-Your goal: MAXIMUM MARKS, MINIMUM TIME.
+FORMAT:
 
-STRICT FORMAT:
-
-🔥 HIGH SCORING TOPICS
-- Only high probability topics
-- Mention WHY they matter
-
-⏱ EXACT TIME PLAN
-- Break into minutes (0–20, 20–40)
-
-❌ SKIP THESE
-- Low ROI topics
-
-✍️ HOW TO WRITE ANSWERS
-- Keywords examiner expects
-- Structure (intro, diagram, points, conclusion)
-
-⚡ MEMORY HACKS
-- Mnemonics / shortcuts
-
-🚨 LAST 10 MIN STRATEGY
-- What to revise
-- What to ignore
-
-🎯 EXPECTED QUESTIONS
-- 3–5 probable questions
+{{
+  "high_priority": ["point1", "point2"],
+  "time_plan": ["step1", "step2"],
+  "skip": ["point1"],
+  "answer_strategy": ["point1"],
+  "memory_hacks": ["point1"],
+  "last_10_min": ["point1"],
+  "expected_questions": ["q1", "q2"]
+}}
 
 RULES:
-- Bullet points only
-- No long explanations
-- Practical, exam-focused
+- No explanation outside JSON
+- Short bullet points only
 """
 
         raw = call_gemini(prompt)
         response = clean_output(raw)
 
-        # Split sections for better structure parsing (optional but strong)
-        sections = {}
-        current_section = None
-        for line in response.split("\n"):
-            if line.startswith("🔥") or line.startswith("⏱") or line.startswith("❌") or line.startswith("✍️") or line.startswith("⚡") or line.startswith("🚨") or line.startswith("🎯"):
-                current_section = line.strip()
-                sections[current_section] = []
-            elif current_section and line.strip():
-                sections[current_section].append(line.strip())
-
-        logger.info(f"[/last-night] success, response_len={len(response)}, sections_parsed={len(sections)}")
-        return {
-            "success": True,
-            "result": response.strip()
-        }
+        # Parse JSON response safely
+        import json
+        try:
+            parsed = json.loads(response)
+            logger.info(f"[/last-night] ✅ JSON parsed successfully")
+            return {
+                "success": True,
+                "data": parsed
+            }
+        except json.JSONDecodeError as je:
+            logger.error(f"[/last-night] JSON parse error: {je}")
+            logger.error(f"[/last-night] Response was: {response[:200]}")
+            return {
+                "success": False,
+                "error": "Invalid AI response format — expected JSON",
+                "raw_response": response[:500]
+            }
 
     except Exception as e:
         logger.error(f"[/last-night] FAILED: {type(e).__name__}: {e}")
