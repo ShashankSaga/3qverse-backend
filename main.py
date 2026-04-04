@@ -937,33 +937,50 @@ async def last_night_plan(data: dict):
         prompt = f"""
 You are a ruthless exam strategist.
 
-Return ONLY valid JSON.
+Return ONLY valid JSON. No explanation, no markdown, no extra text.
 
-Student has {time} to prepare for {subject}.
-Focus topics: {topics if topics else 'None'}
+Student has ONLY {time} to prepare for {subject}.
+Focus topics: {topics}
 Student level: {level}
 Target: {target}
+
+CRITICAL RULES:
+- Time plan MUST strictly fit within {time} (no multi-day plans)
+- Focus only on high scoring and exam-relevant content
+- Avoid textbook explanations
+- Be practical and aggressive for marks scoring
 
 FORMAT:
 
 {{
-  "high_priority": ["..."],
-  "time_plan": ["..."],
-  "skip": ["..."],
-  "answer_strategy": ["..."],
-  "memory_hacks": ["..."],
-  "last_10_min": ["..."],
-  "expected_questions": ["..."]
+  "high_priority": [
+    "Topic — why it matters for marks (e.g., almost always asked, 5–8 marks)"
+  ],
+  "time_plan": [
+    "Minute-wise or block-wise plan within given time"
+  ],
+  "skip": [
+    "Low ROI topics — why to skip"
+  ],
+  "answer_strategy": [
+    "Exact structure to write answers (keywords, diagrams, format)"
+  ],
+  "memory_hacks": [
+    "Mnemonics, shortcuts, fast recall tricks"
+  ],
+  "last_10_min": [
+    "What to revise in last 10 minutes"
+  ],
+  "expected_questions": [
+    "3–5 highly probable exam questions"
+  ]
 }}
 
-RULES:
-- Strict JSON only
-- No explanation
+SPECIAL:
+- If time ≤ 30 minutes → go into PANIC MODE:
+  - Only absolute must-do topics
+  - Ultra compressed plan
 """
-
-        # PANIC MODE: If time contains "30", add critical urgency
-        if "30" in time:
-            prompt += "\nYou are in PANIC MODE. Give only critical topics and shortcuts."
 
         raw = call_gemini(prompt)
         response_text = clean_output(raw).strip()
