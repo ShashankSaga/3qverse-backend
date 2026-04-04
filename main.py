@@ -920,20 +920,29 @@ def generate_exam_answer(data: ExamAnswerRequest):
 # ── /last-night ───────────────────────────────────────────────
 @app.post("/last-night")
 async def last_night_plan(data: dict):
-    subject = data.get("subject", "").strip()
+    # ── INPUT PREPROCESSING ────────────────────────────────────
+    # Handle voice input noise and clean data
+    subject = data.get("subject", "").strip().lower()
     time = data.get("time", "").strip()
     topics = data.get("topics", "").strip()
     level = data.get("level", "intermediate").strip()
     target = data.get("target", "max_marks").strip()
 
+    # Handle short voice input (noise removal)
+    if len(subject.split()) < 2:
+        subject = f"{subject} concepts"
+
     if not subject:
-        return {"success": False, "error": "Subject cannot be empty"}
+        return {"error": "Subject cannot be empty"}
     if not time:
-        return {"success": False, "error": "Time cannot be empty"}
+        return {"error": "Time cannot be empty"}
 
     logger.info(f"[/last-night] subject='{subject}' time='{time}' level='{level}' target='{target}'")
 
     try:
+        # ── STAGE 1: ANALYZING ────────────────────────────────
+        logger.info(f"[/last-night] 📊 Stage: analyzing input")
+
         prompt = f"""
 You are an adaptive exam strategist.
 
@@ -998,8 +1007,13 @@ SPECIAL:
   - Ultra compressed plan
 """
 
+        # ── STAGE 2: PROCESSING WITH GEMINI ───────────────────
+        logger.info(f"[/last-night] ⚙️ Stage: processing strategy")
         raw = call_gemini(prompt)
         response_text = clean_output(raw).strip()
+
+        # ── STAGE 3: PARSING ───────────────────────────────────
+        logger.info(f"[/last-night] 📈 Stage: parsing response")
 
         # Force clean JSON extraction from potentially messy response
         import json
@@ -1018,7 +1032,12 @@ SPECIAL:
         try:
             parsed = json.loads(json_str)
             logger.info(f"[/last-night] ✅ JSON extracted and parsed successfully")
-            return parsed
+            
+            # ── FINAL RESPONSE WITH STATUS ──────────────────────
+            return {
+                "status": "complete",
+                "result": parsed
+            }
         except Exception as e:
             logger.error(f"[/last-night] JSON parse failed: {str(e)}")
             return {
