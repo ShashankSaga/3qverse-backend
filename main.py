@@ -919,23 +919,30 @@ def generate_exam_answer(data: ExamAnswerRequest):
 
 # ── /last-night ───────────────────────────────────────────────
 @app.post("/last-night")
-def last_night_plan(data: LastNightRequest):
-    if not data.subject.strip():
+async def last_night_plan(data: dict):
+    subject = data.get("subject", "").strip()
+    time = data.get("time", "").strip()
+    topics = data.get("topics", "").strip()
+    level = data.get("level", "intermediate").strip()
+    target = data.get("target", "max_marks").strip()
+
+    if not subject:
         return {"success": False, "error": "Subject cannot be empty"}
-    if not data.time.strip():
+    if not time:
         return {"success": False, "error": "Time cannot be empty"}
 
-    logger.info(f"[/last-night] subject='{data.subject}' time='{data.time}' topics='{data.topics}'")
+    logger.info(f"[/last-night] subject='{subject}' time='{time}' level='{level}' target='{target}'")
 
     try:
         prompt = f"""
 You are a ruthless exam strategist.
 
 Return ONLY valid JSON.
-Do NOT add any text before or after JSON.
 
-Student has {data.time} to prepare for {data.subject}.
-Focus topics: {data.topics if data.topics else 'None'}
+Student has {time} to prepare for {subject}.
+Focus topics: {topics if topics else 'None'}
+Student level: {level}
+Target: {target}
 
 FORMAT:
 
@@ -951,10 +958,12 @@ FORMAT:
 
 RULES:
 - Strict JSON only
-- No markdown
 - No explanation
-- No headings
 """
+
+        # PANIC MODE: If time contains "30", add critical urgency
+        if "30" in time:
+            prompt += "\nYou are in PANIC MODE. Give only critical topics and shortcuts."
 
         raw = call_gemini(prompt)
         response_text = clean_output(raw).strip()
@@ -968,8 +977,7 @@ RULES:
         if not match:
             logger.error(f"[/last-night] No JSON found in response: {response_text[:200]}")
             return {
-                "success": False,
-                "error": "No JSON found in AI response"
+                "error": "No JSON found"
             }
         
         json_str = match.group(0)
@@ -977,18 +985,13 @@ RULES:
         try:
             parsed = json.loads(json_str)
             logger.info(f"[/last-night] ✅ JSON extracted and parsed successfully")
-            return {
-                "success": True,
-                "data": parsed
-            }
+            return parsed
         except Exception as e:
             logger.error(f"[/last-night] JSON parse failed: {str(e)}")
-            logger.error(f"[/last-night] Attempted JSON: {json_str[:300]}")
             return {
-                "success": False,
-                "error": f"JSON parse failed: {str(e)}"
+                "error": "Invalid JSON"
             }
 
     except Exception as e:
         logger.error(f"[/last-night] FAILED: {type(e).__name__}: {e}")
-        return {"success": False, "error": f"AI error: {str(e)}"}
+        return {"error": f"AI error: {str(e)}"}
