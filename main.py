@@ -982,8 +982,15 @@ FORMAT:
   "expected_questions": [
     "3–5 highly probable exam questions"
   ],
-  "next_step": "What user should do after finishing this plan"
+  "next_step": "What user should do after finishing this plan",
+  "predicted_score": "e.g., 65–75%",
+  "weak_areas": ["topic1", "topic2"]
 }}
+
+SCORING RULES:
+- Predict realistically (not motivational fluff)
+- Identify weak areas based on level + target
+- Predicted score should reflect plan execution quality
 
 SPECIAL:
 - If time ≤ 30 minutes → go into PANIC MODE:
