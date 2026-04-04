@@ -935,19 +935,27 @@ async def last_night_plan(data: dict):
 
     try:
         prompt = f"""
-You are a ruthless exam strategist.
+You are an adaptive exam strategist.
 
-Return ONLY valid JSON. No explanation, no markdown, no extra text.
+Return ONLY valid JSON.
 
-Student has ONLY {time} to prepare for {subject}.
-Focus topics: {topics}
-Student level: {level}
+Student has {time} for {subject}.
+Level: {level}
 Target: {target}
+Focus: {topics}
 
-CRITICAL RULES:
-- Time plan MUST strictly fit within {time} (no multi-day plans)
+IMPORTANT:
+This is NOT first session.
+
+Previous progress:
+{data.get("previous_progress", "None")}
+
+RULES:
+- Adjust plan based on what is already completed
+- Do NOT repeat completed topics
+- Increase difficulty if user is progressing
 - Focus only on high scoring and exam-relevant content
-- Avoid textbook explanations
+- Time plan MUST strictly fit within {time} (no multi-day plans)
 - Be practical and aggressive for marks scoring
 
 FORMAT:
@@ -973,7 +981,8 @@ FORMAT:
   ],
   "expected_questions": [
     "3–5 highly probable exam questions"
-  ]
+  ],
+  "next_step": "What user should do after finishing this plan"
 }}
 
 SPECIAL:
