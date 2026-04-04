@@ -932,6 +932,7 @@ def last_night_plan(data: LastNightRequest):
 You are a ruthless exam strategist.
 
 Return ONLY valid JSON.
+Do NOT add any text before or after JSON.
 
 Student has {data.time} to prepare for {data.subject}.
 Focus topics: {data.topics if data.topics else 'None'}
@@ -939,39 +940,53 @@ Focus topics: {data.topics if data.topics else 'None'}
 FORMAT:
 
 {{
-  "high_priority": ["point1", "point2"],
-  "time_plan": ["step1", "step2"],
-  "skip": ["point1"],
-  "answer_strategy": ["point1"],
-  "memory_hacks": ["point1"],
-  "last_10_min": ["point1"],
-  "expected_questions": ["q1", "q2"]
+  "high_priority": ["..."],
+  "time_plan": ["..."],
+  "skip": ["..."],
+  "answer_strategy": ["..."],
+  "memory_hacks": ["..."],
+  "last_10_min": ["..."],
+  "expected_questions": ["..."]
 }}
 
 RULES:
-- No explanation outside JSON
-- Short bullet points only
+- Strict JSON only
+- No markdown
+- No explanation
+- No headings
 """
 
         raw = call_gemini(prompt)
-        response = clean_output(raw)
+        response_text = clean_output(raw).strip()
 
-        # Parse JSON response safely
+        # Force clean JSON extraction from potentially messy response
         import json
+        import re
+        
+        match = re.search(r"\{.*\}", response_text, re.DOTALL)
+        
+        if not match:
+            logger.error(f"[/last-night] No JSON found in response: {response_text[:200]}")
+            return {
+                "success": False,
+                "error": "No JSON found in AI response"
+            }
+        
+        json_str = match.group(0)
+        
         try:
-            parsed = json.loads(response)
-            logger.info(f"[/last-night] ✅ JSON parsed successfully")
+            parsed = json.loads(json_str)
+            logger.info(f"[/last-night] ✅ JSON extracted and parsed successfully")
             return {
                 "success": True,
                 "data": parsed
             }
-        except json.JSONDecodeError as je:
-            logger.error(f"[/last-night] JSON parse error: {je}")
-            logger.error(f"[/last-night] Response was: {response[:200]}")
+        except Exception as e:
+            logger.error(f"[/last-night] JSON parse failed: {str(e)}")
+            logger.error(f"[/last-night] Attempted JSON: {json_str[:300]}")
             return {
                 "success": False,
-                "error": "Invalid AI response format — expected JSON",
-                "raw_response": response[:500]
+                "error": f"JSON parse failed: {str(e)}"
             }
 
     except Exception as e:
