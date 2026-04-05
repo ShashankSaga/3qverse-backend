@@ -526,16 +526,30 @@ def build_answer_metadata(
 # =============================================================
 
 def call_gemini(prompt: str) -> str:
-    """Call Gemini 2.5 Flash. Raises on failure."""
+    """Call Gemini 2.5 Flash with retry logic. Handles rate limiting (429)."""
     if not client:
         raise Exception("Gemini client not initialized — GEMINI_API_KEY missing")
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-    )
-    if not response.text:
-        raise Exception("Gemini returned empty response")
-    return response.text
+    
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+            )
+            if not response.text:
+                raise Exception("Gemini returned empty response")
+            return response.text
+        except Exception as e:
+            error_str = str(e)
+            # Check for rate limit error (429)
+            if "429" in error_str:
+                if attempt < 2:  # Don't sleep on last attempt
+                    wait_time = 5 * (attempt + 1)  # 5s, 10s progression
+                    logger.warning(f"[call_gemini] Rate limited (429). Retry {attempt + 1}/3 in {wait_time}s")
+                    time.sleep(wait_time)
+                    continue
+            # Non-retryable error or final attempt
+            raise e
 
 
 def build_history_context(history: List[ChatMessage]) -> str:
@@ -642,7 +656,9 @@ Answer clearly for a B.Tech student using this format:
 
     except Exception as e:
         logger.error(f"[/ask] FAILED: {type(e).__name__}: {e}")
-        return {"success": False, "error": f"AI error: {str(e)}"}
+        if "429" in str(e):
+            return {"success": False, "error": "Server busy. Try again in 10 seconds."}
+        return {"success": False, "error": "Unable to generate answer. Please try again."}
 
 
 # ── /concept ──────────────────────────────────────────────────
@@ -686,7 +702,9 @@ Return STRICTLY in this format:
 
     except Exception as e:
         logger.error(f"[/concept] FAILED: {type(e).__name__}: {e}")
-        return {"success": False, "error": f"AI error: {str(e)}"}
+        if "429" in str(e):
+            return {"success": False, "error": "Server busy. Try again in 10 seconds."}
+        return {"success": False, "error": "Unable to generate concept explanation. Please try again."}
 
 
 # ── /study-plan ───────────────────────────────────────────────
@@ -732,7 +750,9 @@ Rules: Exactly {data.days} lines, progress basics to advanced, match {data.level
 
     except Exception as e:
         logger.error(f"[/study-plan] FAILED: {type(e).__name__}: {e}")
-        return {"success": False, "error": f"AI error: {str(e)}"}
+        if "429" in str(e):
+            return {"success": False, "error": "Server busy. Try again in 10 seconds."}
+        return {"success": False, "error": "Unable to generate study plan. Please try again."}
 
 
 # ── /roadmap ──────────────────────────────────────────────────
@@ -766,7 +786,9 @@ No extra text. Practical and interview-focused."""
 
     except Exception as e:
         logger.error(f"[/roadmap] FAILED: {type(e).__name__}: {e}")
-        return {"success": False, "error": f"AI error: {str(e)}"}
+        if "429" in str(e):
+            return {"success": False, "error": "Server busy. Try again in 10 seconds."}
+        return {"success": False, "error": "Unable to generate roadmap. Please try again."}
 
 
 # ── /code-analyze ─────────────────────────────────────────────
@@ -815,7 +837,9 @@ Review format:
 
     except Exception as e:
         logger.error(f"[/code-analyze] FAILED: {type(e).__name__}: {e}")
-        return {"success": False, "error": f"AI error: {str(e)}"}
+        if "429" in str(e):
+            return {"success": False, "error": "Server busy. Try again in 10 seconds."}
+        return {"success": False, "error": "Unable to analyze code. Please try again."}
 
 
 # ── /exam-answer ──────────────────────────────────────────────
@@ -914,7 +938,9 @@ def generate_exam_answer(data: ExamAnswerRequest):
 
     except Exception as e:
         logger.error(f"[/exam-answer] FAILED: {type(e).__name__}: {e}")
-        return {"success": False, "error": f"AI error: {str(e)}"}
+        if "429" in str(e):
+            return {"success": False, "error": "Server busy. Try again in 10 seconds."}
+        return {"success": False, "error": "Unable to generate exam answer. Please try again."}
 
 
 # ── /last-night ───────────────────────────────────────────────
@@ -1046,4 +1072,6 @@ SPECIAL:
 
     except Exception as e:
         logger.error(f"[/last-night] FAILED: {type(e).__name__}: {e}")
-        return {"error": f"AI error: {str(e)}"}
+        if "429" in str(e):
+            return {"error": "Server busy. Try again in 10 seconds."}
+        return {"error": "Unable to generate study strategy. Please try again."}
